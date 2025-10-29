@@ -1,7 +1,7 @@
 import os
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Header
@@ -335,6 +335,79 @@ def list_prescriptions(session: Dict[str, Any] = Depends(get_current_session)):
     for it in items:
         it["_id"] = str(it["_id"])  # serialize
     return {"items": items}
+
+
+# -------------------- Dashboards --------------------
+
+@app.get("/dashboard/patient")
+def patient_dashboard(session: Dict[str, Any] = Depends(get_current_session)):
+    if session.get("role") != "patient":
+        raise HTTPException(status_code=403, detail="Patients only")
+    uid = session.get("user_id")
+
+    # Appointments for this patient
+    appts = list(db["appointment"].find({"patient_id": uid}).sort("scheduled_at", 1).limit(20))
+    for a in appts:
+        a["_id"] = str(a["_id"])
+
+    # Next appointment (first in sorted list that is in the future if possible)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    next_appt = None
+    for a in appts:
+        try:
+            if a.get("scheduled_at", "") >= now_iso:
+                next_appt = a
+                break
+        except Exception:
+            continue
+    if not next_appt and appts:
+        next_appt = appts[0]
+
+    # Prescriptions
+    prescs = list(db["prescription"].find({"patient_id": uid}).sort("_id", -1).limit(20))
+    for p in prescs:
+        p["_id"] = str(p["_id"])
+
+    return {
+        "appointments": appts,
+        "next_appointment": next_appt,
+        "prescriptions": prescs,
+        "counts": {"appointments": len(appts), "prescriptions": len(prescs)},
+    }
+
+
+@app.get("/dashboard/doctor")
+def doctor_dashboard(session: Dict[str, Any] = Depends(get_current_session)):
+    if session.get("role") != "doctor":
+        raise HTTPException(status_code=403, detail="Doctors only")
+    uid = session.get("user_id")
+
+    # Upcoming appointments for this doctor
+    appts = list(db["appointment"].find({"doctor_id": uid}).sort("scheduled_at", 1).limit(30))
+    for a in appts:
+        a["_id"] = str(a["_id"])
+
+    # Distinct patients from appointments
+    patient_ids = sorted(list({a.get("patient_id") for a in appts if a.get("patient_id")}))
+    patients: List[Dict[str, Any]] = []
+    if patient_ids:
+        cursor = db["user"].find({"_id": {"$in": [__import__('bson').ObjectId(pid) for pid in patient_ids if pid]}}).limit(50)
+        for u in cursor:
+            u["_id"] = str(u["_id"])
+            u.pop("password_hash", None)
+            patients.append({"id": u["_id"], "name": u.get("name"), "email": u.get("email")})
+
+    # Recent prescriptions written by this doctor
+    prescs = list(db["prescription"].find({"doctor_id": uid}).sort("_id", -1).limit(20))
+    for p in prescs:
+        p["_id"] = str(p["_id"])
+
+    return {
+        "appointments": appts,
+        "patients": patients,
+        "prescriptions": prescs,
+        "counts": {"appointments": len(appts), "patients": len(patients), "prescriptions": len(prescs)},
+    }
 
 
 # -------------------- AI Chat (simple rules) --------------------
