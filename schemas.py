@@ -1,48 +1,52 @@
-"""
-Database Schemas
+from pydantic import BaseModel, Field, EmailStr
+from typing import Optional, List
 
-Define your MongoDB collection schemas here using Pydantic models.
-These schemas are used for data validation in your application.
-
-Each Pydantic model represents a collection in your database.
-Model name is converted to lowercase for the collection name:
-- User -> "user" collection
-- Product -> "product" collection
-- BlogPost -> "blogs" collection
-"""
-
-from pydantic import BaseModel, Field
-from typing import Optional
-
-# Example schemas (replace with your own):
+# HEALNEX Core Schemas
+# Each class defines a MongoDB collection using the lowercase name
 
 class User(BaseModel):
-    """
-    Users collection schema
-    Collection name: "user" (lowercase of class name)
-    """
     name: str = Field(..., description="Full name")
-    email: str = Field(..., description="Email address")
-    address: str = Field(..., description="Address")
-    age: Optional[int] = Field(None, ge=0, le=120, description="Age in years")
-    is_active: bool = Field(True, description="Whether user is active")
+    email: EmailStr = Field(..., description="Unique email address")
+    role: str = Field(..., description="User role: patient | doctor | admin")
+    password_hash: str = Field(..., description="Hashed password using sha256")
+    is_active: bool = Field(True, description="Whether the account is active")
 
-class Product(BaseModel):
-    """
-    Products collection schema
-    Collection name: "product" (lowercase of class name)
-    """
-    title: str = Field(..., description="Product title")
-    description: Optional[str] = Field(None, description="Product description")
-    price: float = Field(..., ge=0, description="Price in dollars")
-    category: str = Field(..., description="Product category")
-    in_stock: bool = Field(True, description="Whether product is in stock")
+class Patient(BaseModel):
+    user_id: str = Field(..., description="Reference to user _id as string")
+    age: Optional[int] = Field(None, ge=0, le=120)
+    gender: Optional[str] = Field(None, description="male | female | other")
+    blood_group: Optional[str] = Field(None, description="e.g., A+, O-, etc.")
+    notes: Optional[str] = None
 
-# Add your own schemas here:
-# --------------------------------------------------
+class Doctor(BaseModel):
+    user_id: str = Field(..., description="Reference to user _id as string")
+    specialization: Optional[str] = None
+    license_no: Optional[str] = None
+    about: Optional[str] = None
 
-# Note: The Flames database viewer will automatically:
-# 1. Read these schemas from GET /schema endpoint
-# 2. Use them for document validation when creating/editing
-# 3. Handle all database operations (CRUD) directly
-# 4. You don't need to create any database endpoints!
+class Appointment(BaseModel):
+    patient_id: str = Field(..., description="Patient user_id or patient document id")
+    doctor_id: str = Field(..., description="Doctor user_id or doctor document id")
+    scheduled_at: str = Field(..., description="ISO datetime string")
+    reason: Optional[str] = None
+    status: str = Field("pending", description="pending | confirmed | completed | cancelled")
+
+class Disease(BaseModel):
+    name: str = Field(...)
+    symptoms: List[str] = Field(default_factory=list)
+    causes: List[str] = Field(default_factory=list)
+    prevention: List[str] = Field(default_factory=list)
+    treatments: List[str] = Field(default_factory=list)
+    severity: Optional[str] = None
+
+class Report(BaseModel):
+    patient_id: str = Field(..., description="Reference to patient user_id")
+    title: str = Field(...)
+    file_path: str = Field(..., description="Server path to stored PDF")
+    mime_type: str = Field("application/pdf")
+
+class Prescription(BaseModel):
+    patient_id: str = Field(...)
+    doctor_id: str = Field(...)
+    content: str = Field(..., description="Prescription text content")
+    file_path: Optional[str] = Field(None, description="If exported to a file, store path here")
